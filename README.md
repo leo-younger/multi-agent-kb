@@ -125,12 +125,12 @@ Neo4j 管理界面：http://localhost:7474
 
 > 首次启动需拉取镜像，等待约 1 分钟。如已启动过，约 10 秒即可。
 
-### 第三步：启动后端
+### 第三步：首次配置（只需做一次）
 
 ```bash
 cd backend
 
-# 创建虚拟环境
+# 创建虚拟环境（只需一次）
 python -m venv venv
 
 # 激活虚拟环境
@@ -139,8 +139,22 @@ venv\Scripts\activate
 # macOS/Linux:
 source venv/bin/activate
 
-# 安装依赖（首次约 2-3 分钟，sentence-transformers 模型约 80MB）
+# 安装依赖（只需一次，约 2-3 分钟，sentence-transformers 模型约 80MB）
 pip install -r requirements.txt
+```
+
+### 第四步：启动后端（每次使用都要）
+
+新开一个终端窗口：
+
+```bash
+cd backend
+
+# 激活虚拟环境（每次开新终端都要，激活后命令行前面会显示 (venv)）
+# Windows:
+venv\Scripts\activate
+# macOS/Linux:
+source venv/bin/activate
 
 # 启动后端服务
 python main.py
@@ -158,14 +172,14 @@ INFO:     Uvicorn running on http://0.0.0.0:8000
 
 > Embedding 模型首次加载需下载约 80MB，如果网络慢会自动降级为 mock 模式（不影响使用，只是向量精度稍低）。
 
-### 第四步：启动前端
+### 第五步：启动前端（每次使用都要）
 
-新开一个终端窗口：
+再开一个终端窗口：
 
 ```bash
 cd frontend
 
-# 安装依赖
+# 首次需要安装依赖
 npm install
 
 # 启动开发服务器
@@ -180,7 +194,33 @@ npm run dev
   ➜  Local:   http://localhost:5173/
 ```
 
-### 第五步：使用系统
+### 日常启动速查
+
+首次配置完成后，以后每次使用只需 3 步：
+
+```bash
+# 终端 1：启动数据库（如果 Docker 已在运行，这步通常不需要，容器会自动重启）
+docker-compose up -d
+
+# 终端 2：启动后端
+cd backend
+venv\Scripts\activate    # macOS/Linux: source venv/bin/activate
+python main.py
+
+# 终端 3：启动前端
+cd frontend
+npm run dev
+```
+
+| 步骤 | 首次部署 | 日常启动 |
+|------|---------|---------|
+| 创建虚拟环境 | `python -m venv venv` | 不需要 |
+| 安装 Python 依赖 | `pip install -r requirements.txt` | 不需要（除非依赖有更新） |
+| 安装前端依赖 | `npm install` | 不需要（除非依赖有更新） |
+| 激活虚拟环境 | 需要 | **每次开新终端都要** |
+| 启动服务 | 需要 | 每次都要 |
+
+### 第六步：使用系统
 
 1. 浏览器打开 http://localhost:5173
 2. **文档管理**：点击左侧「文档管理」→ 上传 `test-data/` 目录下的测试文件 → 点击「开始抽取」→ 点击「开始入库」

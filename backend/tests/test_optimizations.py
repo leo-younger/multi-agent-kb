@@ -62,3 +62,31 @@ def test_embedding_deterministic():
 def test_embedding_dimension():
     """get_dimension 应返回 384"""
     assert get_dimension() == 384
+
+
+from services.entity_extractor import extract_from_chunks, extract_entities_from_text
+
+
+def test_extract_entities_dedup():
+    """多个切片中的重复实体应去重"""
+    chunks = ["张三负责知识库模块", "张三也负责解析服务", "李四负责订单系统"]
+    entities, relations = extract_from_chunks(chunks)
+    names = [e.name for e in entities]
+    assert names.count("张三") == 1
+    assert "李四" in names
+
+
+def test_extract_entities_from_text():
+    """单文本实体提取应匹配词典中的实体"""
+    text = "技术部负责管理解析服务"
+    entities = extract_entities_from_text(text)
+    names = {e.name for e in entities}
+    assert "技术部" in names
+    assert "解析服务" in names
+
+
+def test_extract_entities_fallback():
+    """无匹配实体时应返回默认实体"""
+    text = "这是一段没有任何已知实体的普通文本"
+    entities = extract_entities_from_text(text)
+    assert len(entities) > 0

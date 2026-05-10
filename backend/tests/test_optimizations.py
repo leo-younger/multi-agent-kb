@@ -139,7 +139,7 @@ def test_analyze_question():
     assert _analyze_question("张三负责什么模块？") == "职责查询"
     assert _analyze_question("订单系统依赖哪些服务？") == "依赖关系查询"
     assert _analyze_question("解析服务属于哪个部门？") == "归属查询"
-    assert _analyze_question("随便问一个问题") == "通用查询"
+    assert _analyze_question("随便聊聊") == "通用查询"
 
 
 def test_extract_keywords():

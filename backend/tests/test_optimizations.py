@@ -157,7 +157,7 @@ def test_extract_keywords_fallback():
 
 def test_agent_pipeline_async():
     """run_agent_pipeline 应为 async 函数且可执行"""
-    result = asyncio.get_event_loop().run_until_complete(
+    result = asyncio.run(
         run_agent_pipeline("张三负责什么？")
     )
     assert "answer" in result

@@ -4,6 +4,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from services.document_parser import chunk_text
+from services.embedding import get_embedding, get_embeddings, get_dimension
 
 
 def test_chunk_overlap_guard():
@@ -38,3 +39,26 @@ def test_chunk_single():
     chunks = chunk_text(text, chunk_size=100, overlap=10)
     assert len(chunks) == 1
     assert chunks[0].content == "Hello"
+
+
+def test_embedding_mock_fallback():
+    """mock 模式应返回 384 维归一化向量"""
+    from services.embedding import _text_to_mock_vector
+    vec = _text_to_mock_vector("测试文本")
+    assert len(vec) == 384
+    import numpy as np
+    norm = np.linalg.norm(vec)
+    assert abs(norm - 1.0) < 1e-5
+
+
+def test_embedding_deterministic():
+    """相同文本应生成相同的 mock 向量"""
+    from services.embedding import _text_to_mock_vector
+    vec1 = _text_to_mock_vector("hello")
+    vec2 = _text_to_mock_vector("hello")
+    assert vec1 == vec2
+
+
+def test_embedding_dimension():
+    """get_dimension 应返回 384"""
+    assert get_dimension() == 384

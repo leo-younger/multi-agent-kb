@@ -5,17 +5,41 @@
   <div class="graph-page">
     <div class="graph-toolbar">
       <div class="toolbar-left">
-        <span class="toolbar-title">🔗 知识图谱</span>
+        <span class="toolbar-title">知识图谱</span>
         <span class="toolbar-info" v-if="graphData">{{ graphData.nodes.length }} 节点 / {{ graphData.edges.length }} 关系</span>
       </div>
       <div class="toolbar-right">
         <el-button size="small" @click="toggleLabels">{{ showLabels ? '隐藏标签' : '显示标签' }}</el-button>
         <el-button size="small" @click="loadGraph" :loading="loading">刷新</el-button>
+        <el-button v-if="undoStack.length > 0" size="small" type="warning" @click="undoLast">↩ 撤销「{{ undoStack[undoStack.length - 1].entity.name }}」</el-button>
+        <el-dropdown v-if="undoStack.length > 1" trigger="click" @command="undoByIndex">
+          <el-button size="small" type="info">历史 ({{ undoStack.length }})</el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item v-for="(item, i) in undoStack.slice().reverse()" :key="i" :command="undoStack.length - 1 - i">
+                ↩ 恢复「{{ item.entity.name }}」({{ item.entity.entity_type }})
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+        <el-button size="small" type="danger" @click="clearGraph" :loading="clearing">清空图谱</el-button>
       </div>
     </div>
 
-    <div class="graph-container" ref="containerRef">
+    <div class="graph-container" ref="containerRef" @contextmenu.prevent>
       <div ref="chartRef" class="chart-area"></div>
+      <EmptyState
+        v-if="!loading && graphData && graphData.nodes.length === 0"
+        icon="⬡"
+        title="暂无图谱数据"
+        description="请先上传文档并执行实体抽取"
+      />
+      <!-- 右键菜单 -->
+      <div v-if="contextMenu.visible" class="context-menu" :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }">
+        <div class="ctx-item ctx-delete" @click="deleteNode(contextMenu.nodeName)">
+          <span class="ctx-icon">×</span> 删除「{{ contextMenu.nodeName }}」
+        </div>
+      </div>
       <!-- 图例 -->
       <div class="legend-bar">
         <div class="legend-item">
@@ -59,15 +83,20 @@
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
+import EmptyState from './EmptyState.vue'
 
 const chartRef = ref(null)
 const containerRef = ref(null)
 const graphData = ref(null)
 const loading = ref(false)
+const clearing = ref(false)
 const showLabels = ref(true)
 const selectedNode = ref(null)
 const popupStyle = ref({})
+const contextMenu = ref({ visible: false, x: 0, y: 0, nodeName: '' })
+const undoStack = ref([])
 let chart = null
 
 // 各类型颜色
@@ -162,9 +191,76 @@ async function loadGraph() {
   finally { loading.value = false }
 }
 
+async function clearGraph() {
+  try {
+    await ElMessageBox.confirm('确定清空知识图谱中的所有实体和关系？此操作不可恢复。', '清空图谱', {
+      confirmButtonText: '确定清空',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+  } catch { return }
+
+  clearing.value = true
+  try {
+    const res = await fetch('/api/graph', { method: 'DELETE' })
+    if (!res.ok) {
+      const err = await res.json()
+      ElMessage.error(err.detail || '清空失败')
+      return
+    }
+    ElMessage.success('图谱已清空')
+    loadGraph()
+  } catch (e) { ElMessage.error('清空失败') }
+  finally { clearing.value = false }
+}
+
+async function deleteNode(name) {
+  contextMenu.value.visible = false
+  try {
+    const res = await fetch(`/api/graph/entity/${encodeURIComponent(name)}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const err = await res.json()
+      ElMessage.error(err.detail || '删除失败')
+      return
+    }
+    const data = await res.json()
+    // 压入撤销栈
+    undoStack.value.push({ entity: data.entity, relations: data.relations })
+    ElMessage.success(`已删除「${name}」及其 ${data.relations.length} 条关系`)
+    loadGraph()
+  } catch (e) { ElMessage.error('删除失败') }
+}
+
+async function undoByIndex(index) {
+  const item = undoStack.value[index]
+  if (!item) return
+  try {
+    const res = await fetch('/api/graph/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(item),
+    })
+    if (!res.ok) {
+      ElMessage.error('撤销失败')
+      return
+    }
+    undoStack.value.splice(index, 1)
+    ElMessage.success(`已恢复「${item.entity.name}」`)
+    loadGraph()
+  } catch (e) { ElMessage.error('撤销失败') }
+}
+
+function undoLast() {
+  undoByIndex(undoStack.value.length - 1)
+}
+
 function renderChart(data) {
   if (!chartRef.value) return
   if (!chart) chart = echarts.init(chartRef.value)
+  if (!data.nodes || data.nodes.length === 0) {
+    chart.clear()
+    return
+  }
 
   const categories = []
   const seen = new Set()
@@ -293,6 +389,7 @@ function renderChart(data) {
   // 点击节点显示详情
   chart.off('click')
   chart.on('click', (params) => {
+    contextMenu.value.visible = false
     if (params.dataType !== 'node') { selectedNode.value = null; return }
     const nodeData = data.nodes.find(n => n.name === params.name)
     if (!nodeData) return
@@ -321,9 +418,26 @@ function renderChart(data) {
     }
   })
 
-  // 点击空白关闭浮层
+  // 右键节点弹出菜单
+  chart.off('contextmenu')
+  chart.on('contextmenu', (params) => {
+    if (params.dataType === 'node') {
+      selectedNode.value = null
+      contextMenu.value = {
+        visible: true,
+        x: params.event.offsetX,
+        y: params.event.offsetY,
+        nodeName: params.name,
+      }
+    }
+  })
+
+  // 点击空白关闭浮层和菜单
   chart.getZr().on('click', (e) => {
-    if (!e.target) selectedNode.value = null
+    if (!e.target) {
+      selectedNode.value = null
+      contextMenu.value.visible = false
+    }
   })
 }
 
@@ -348,49 +462,60 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.graph-page { display: flex; flex-direction: column; gap: 12px; height: calc(100vh - 110px); }
+.graph-page { display: flex; flex-direction: column; gap: 12px; height: calc(100vh - var(--topbar-height) - 48px); }
 
 .graph-toolbar {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 16px; background: #fff; border: 1px solid #e5e6eb; border-radius: 8px;
+  padding: 10px 16px;
+  background: var(--bg-topbar);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  backdrop-filter: blur(12px);
 }
 .toolbar-left { display: flex; align-items: center; gap: 10px; }
 .toolbar-right { display: flex; gap: 8px; }
-.toolbar-title { font-size: 14px; font-weight: 600; color: #1d2129; }
-.toolbar-info { font-size: 12px; color: #86909c; background: #f7f8fa; padding: 2px 8px; border-radius: 4px; }
+.toolbar-title {
+  font-family: var(--font-display);
+  font-size: 14px; font-weight: 700;
+  color: var(--text-primary);
+}
+.toolbar-info {
+  font-family: var(--font-mono);
+  font-size: 11px; color: var(--text-muted);
+  background: var(--bg-hover); padding: 2px 8px;
+  border-radius: var(--radius-sm);
+}
 
 .graph-container {
   flex: 1; position: relative;
-  background: linear-gradient(135deg, #f8faff 0%, #f0f5ff 50%, #f5f8ff 100%);
-  border: 1px solid #e5e6eb; border-radius: 10px; overflow: hidden;
+  background: linear-gradient(135deg, var(--bg-page) 0%, var(--bg-card) 50%, var(--bg-page) 100%);
+  border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden;
 }
 
 .chart-area { width: 100%; height: 100%; }
 
-/* 图例 */
 .legend-bar {
   position: absolute; bottom: 14px; left: 14px;
   display: flex; gap: 14px; padding: 8px 16px;
-  background: rgba(255,255,255,0.92); border: 1px solid #e5e6eb;
-  border-radius: 8px; backdrop-filter: blur(8px);
-  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  background: var(--bg-topbar); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-sm);
 }
-.legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #4e5969; }
+.legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
 .legend-icon { width: 14px; height: 14px; border-radius: 50%; }
-.person-icon { background: #165dff; }
-.dept-icon { background: #52c41a; border-radius: 3px; }
-.sys-icon { background: #ff7d00; border-radius: 3px; }
-.mod-icon { background: #722ed1; }
+.person-icon { background: var(--blue); }
+.dept-icon { background: var(--green); border-radius: 3px; }
+.sys-icon { background: var(--accent); border-radius: 3px; }
+.mod-icon { background: var(--purple); }
 .api-icon { background: #13c2c2; border-radius: 2px; transform: rotate(45deg); }
 
-/* 详情浮层 */
 .detail-popup {
   position: absolute; z-index: 10;
   width: 240px; padding: 16px;
-  background: rgba(255,255,255,0.96);
-  border: 1px solid #e5e6eb; border-radius: 12px;
-  box-shadow: 0 12px 32px rgba(0,0,0,0.12);
-  backdrop-filter: blur(12px);
+  background: var(--bg-topbar);
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(16px);
   animation: popupIn 0.2s ease-out;
 }
 
@@ -403,10 +528,10 @@ onBeforeUnmount(() => {
   position: absolute; top: 8px; right: 12px;
   width: 24px; height: 24px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  font-size: 16px; color: #86909c; cursor: pointer;
-  transition: all 0.2s;
+  font-size: 16px; color: var(--text-muted); cursor: pointer;
+  transition: all var(--transition-fast);
 }
-.popup-close:hover { background: #f2f3f5; color: #1d2129; }
+.popup-close:hover { background: var(--bg-hover); color: var(--text-primary); }
 
 .popup-avatar {
   width: 48px; height: 48px; border-radius: 50%;
@@ -416,16 +541,36 @@ onBeforeUnmount(() => {
   box-shadow: 0 4px 12px rgba(0,0,0,0.15);
 }
 
-.popup-name { font-size: 16px; font-weight: 700; color: #1d2129; }
-.popup-type { font-size: 12px; color: #86909c; margin-top: 2px; }
+.popup-name {
+  font-family: var(--font-display);
+  font-size: 16px; font-weight: 700;
+  color: var(--text-primary);
+}
+.popup-type { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 
-.popup-rels { margin-top: 10px; border-top: 1px solid #f2f3f5; padding-top: 8px; }
+.popup-rels { margin-top: 10px; border-top: 1px solid var(--border-light); padding-top: 8px; }
 .popup-rel {
-  font-size: 12px; color: #4e5969; padding: 3px 0;
+  font-size: 12px; color: var(--text-secondary); padding: 3px 0;
   display: flex; align-items: center; gap: 4px;
 }
 .popup-rel::before {
   content: ''; width: 4px; height: 4px; border-radius: 50%;
-  background: #165dff; flex-shrink: 0;
+  background: var(--accent); flex-shrink: 0;
 }
+
+.context-menu {
+  position: absolute; z-index: 20;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md); padding: 4px;
+  min-width: 180px;
+}
+.ctx-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; font-size: 13px; color: var(--text-primary);
+  border-radius: 6px; cursor: pointer; transition: background var(--transition-fast);
+}
+.ctx-item:hover { background: var(--bg-hover); }
+.ctx-delete { color: var(--red); }
+.ctx-delete:hover { background: rgba(239,68,68,0.08); }
+.ctx-icon { font-size: 14px; }
 </style>

@@ -90,3 +90,41 @@ def test_extract_entities_fallback():
     text = "这是一段没有任何已知实体的普通文本"
     entities = extract_entities_from_text(text)
     assert len(entities) > 0
+
+
+from unittest.mock import patch, MagicMock
+
+
+def test_search_related_entities_empty_keywords():
+    """空关键词列表应返回空结果"""
+    from services.graph_store import search_related_entities
+    result = search_related_entities([])
+    assert result == []
+
+
+@patch("services.graph_store._get_driver")
+def test_search_related_entities_calls_unwind(mock_get_driver):
+    """查询应使用 UNWIND 合并关键词"""
+    from services.graph_store import search_related_entities
+    mock_driver = MagicMock()
+    mock_get_driver.return_value = mock_driver
+
+    mock_session = MagicMock()
+    mock_driver.session.return_value.__enter__ = MagicMock(return_value=mock_session)
+    mock_driver.session.return_value.__exit__ = MagicMock(return_value=False)
+
+    mock_result = MagicMock()
+    mock_result.__iter__ = MagicMock(return_value=iter([
+        {"source": "张三", "target": "知识库模块", "rel_type": "负责"},
+    ]))
+    mock_session.run.return_value = mock_result
+
+    result = search_related_entities(["张三", "知识库模块"])
+
+    # 验证调用了 session.run 且参数包含 keywords 列表
+    mock_session.run.assert_called_once()
+    call_args = mock_session.run.call_args
+    assert "keywords" in call_args.kwargs or "keywords" in call_args[1]
+    # 验证 Cypher 包含 UNWIND
+    cypher = call_args[0][0]
+    assert "UNWIND" in cypher

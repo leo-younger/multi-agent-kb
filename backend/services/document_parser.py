@@ -56,6 +56,7 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100) -> List[Doc
         文档切片列表
     """
     if overlap >= chunk_size:
+        print(f"[ChunkText] 警告: overlap({overlap}) >= chunk_size({chunk_size})，已重置为 0")
         overlap = 0
 
     chunks = []

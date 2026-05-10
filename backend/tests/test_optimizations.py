@@ -3,7 +3,7 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from services.document_parser import chunk_text, parse_pdf, parse_docx
+from services.document_parser import chunk_text
 
 
 def test_chunk_overlap_guard():

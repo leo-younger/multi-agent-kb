@@ -43,11 +43,12 @@ _load_thread = threading.Thread(target=_try_load_model, daemon=True)
 _load_thread.start()
 
 
-def _wait_model(timeout: float = 30.0):
+def _wait_model(timeout: float = 120.0):
     """等待模型加载完成（最多 timeout 秒）"""
     if not _model_ready.is_set():
         print("[Embedding] 等待模型加载...")
-        _model_ready.wait(timeout=timeout)
+        if not _model_ready.wait(timeout=timeout):
+            print("[Embedding] 警告: 模型加载超时，当前请求将使用 mock 向量")
 
 
 def _text_to_mock_vector(text: str) -> List[float]:

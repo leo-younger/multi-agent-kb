@@ -1,0 +1,23 @@
+# 多智能体协同知识库系统 - Docker Compose 配置
+# 仅启动 Neo4j 图数据库，Milvus 使用嵌入式 Lite 模式
+
+services:
+  neo4j:
+    image: neo4j:5.12-community
+    container_name: neo4j-kb
+    ports:
+      - "7474:7474"   # Web 管理界面
+      - "7687:7687"   # Bolt 协议端口
+    environment:
+      - NEO4J_AUTH=neo4j/password123
+      - NEO4J_PLUGINS=["apoc"]
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: ["CMD", "neo4j", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  neo4j_data:

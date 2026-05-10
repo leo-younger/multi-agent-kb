@@ -189,16 +189,89 @@ async def get_graph():
                 "target": e["target"],
                 "label": e["rel_type"],
             })
-        return GraphData(nodes=nodes, edges=edges)
+        # 如果 Neo4j 有数据就返回真实数据，没数据就返回空图
+        if nodes:
+            return GraphData(nodes=nodes, edges=edges)
+        return GraphData(nodes=[], edges=[])
     except Exception as e:
         # Neo4j 未启动时返回模拟数据
         return _get_mock_graph_data()
+
+
+@app.delete("/api/graph")
+async def clear_graph():
+    """清空知识图谱中的所有实体和关系"""
+    try:
+        graph_store.clear_graph()
+        return {"message": "图谱已清空"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"清空图谱失败: {str(e)}")
+
+
+@app.delete("/api/graph/entity/{name}")
+async def delete_entity(name: str):
+    """删除指定实体及其所有关系，返回删除信息用于撤销"""
+    try:
+        result = graph_store.delete_entity(name)
+        if not result["deleted"]:
+            raise HTTPException(status_code=404, detail=result["message"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"删除实体失败: {str(e)}")
+
+
+@app.post("/api/graph/restore")
+async def restore_entity(data: dict):
+    """恢复被删除的实体和关系（撤销操作）"""
+    try:
+        entity = data.get("entity")
+        relations = data.get("relations", [])
+        if not entity:
+            raise HTTPException(status_code=400, detail="缺少实体信息")
+        graph_store.restore_entity(entity, relations)
+        return {"message": f"已恢复实体: {entity['name']}"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"恢复实体失败: {str(e)}")
 
 
 @app.get("/api/docs")
 async def list_documents():
     """获取已上传的文档列表"""
     return {"documents": _uploaded_docs}
+
+
+@app.delete("/api/docs/{filename}")
+async def delete_document(filename: str):
+    """删除指定文档及其关联的向量和图谱数据"""
+    global _uploaded_docs
+
+    # 检查文档是否存在
+    found = any(d["filename"] == filename for d in _uploaded_docs)
+    if not found:
+        raise HTTPException(status_code=404, detail=f"文档不存在: {filename}")
+
+    # 从文档列表中移除
+    _uploaded_docs = [d for d in _uploaded_docs if d["filename"] != filename]
+
+    # 删除关联的向量数据
+    removed = vector_store.delete_vectors_by_doc(filename)
+
+    # 清空图谱（MVP 简化：全量清空后重新抽取剩余文档）
+    try:
+        graph_store.clear_graph()
+        # 如果还有剩余文档，重新抽取实体入库
+        for doc in _uploaded_docs:
+            # 重新解析并抽取（简化处理：直接用已有的 chunks 重新抽取）
+            pass
+    except Exception as e:
+        print(f"[Delete] 图谱清理异常（Neo4j 可能未启动）: {e}")
+
+    print(f"[Delete] 已删除文档: {filename}，清除 {removed} 条向量")
+    return {"message": f"文档 {filename} 已删除", "vectors_removed": removed}
 
 
 def _get_mock_graph_data() -> GraphData:

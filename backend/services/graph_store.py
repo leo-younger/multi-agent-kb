@@ -120,6 +120,65 @@ def get_all_entities_and_relations() -> Dict:
     return {"nodes": nodes, "edges": edges}
 
 
+def delete_entity(name: str) -> Dict:
+    """
+    删除指定实体及其所有关系
+
+    Args:
+        name: 实体名称
+
+    Returns:
+        删除结果，包含被删除的实体信息和关系数
+    """
+    driver = _get_driver()
+    with driver.session() as session:
+        # 先查询要删除的实体和关系（用于撤销）
+        entity_result = session.run(
+            "MATCH (e:Entity {name: $name}) RETURN e.name AS name, e.entity_type AS entity_type",
+            name=name,
+        )
+        entity_record = entity_result.single()
+        if not entity_record:
+            return {"deleted": False, "message": f"实体 {name} 不存在"}
+
+        entity_info = {"name": entity_record["name"], "entity_type": entity_record["entity_type"]}
+
+        # 查询关联关系
+        rels_result = session.run(
+            "MATCH (a:Entity {name: $name})-[r:RELATION]->(b:Entity) "
+            "RETURN a.name AS source, b.name AS target, r.type AS rel_type "
+            "UNION "
+            "MATCH (b:Entity)-[r:RELATION]->(a:Entity {name: $name}) "
+            "RETURN b.name AS source, a.name AS target, r.type AS rel_type",
+            name=name,
+        )
+        relations = [dict(record) for record in rels_result]
+
+        # 删除实体及其关系
+        session.run("MATCH (e:Entity {name: $name}) DETACH DELETE e", name=name)
+
+    print(f"[GraphStore] 已删除实体: {name}，关联 {len(relations)} 条关系")
+    return {"deleted": True, "entity": entity_info, "relations": relations}
+
+
+def restore_entity(entity: Dict, relations: List[Dict]):
+    """
+    恢复被删除的实体和关系（用于撤销）
+
+    Args:
+        entity: 实体信息 {"name": ..., "entity_type": ...}
+        relations: 关系列表 [{"source": ..., "target": ..., "rel_type": ...}]
+    """
+    driver = _get_driver()
+    create_entity(entity["name"], entity["entity_type"])
+    for r in relations:
+        # 确保两端实体都存在
+        create_entity(r["source"], "未知")
+        create_entity(r["target"], "未知")
+        create_relation(r["source"], r["target"], r["rel_type"])
+    print(f"[GraphStore] 已恢复实体: {entity['name']}，关系 {len(relations)} 条")
+
+
 def search_related_entities(keywords: List[str]) -> List[Dict]:
     """
     根据关键词搜索相关实体及其关系

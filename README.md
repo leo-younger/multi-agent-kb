@@ -87,56 +87,179 @@ multi-agent-kb/
 └── README.md
 ```
 
+## 环境要求
+
+| 依赖 | 最低版本 | 说明 |
+|------|---------|------|
+| Python | 3.10+ | 后端运行环境 |
+| Node.js | 18+ | 前端构建环境 |
+| Docker | 20+ | 运行 Neo4j 数据库 |
+| Git | 任意 | 克隆代码 |
+
 ## 快速开始
 
-### 1. 启动 Neo4j 数据库
+### 第一步：克隆代码
+
+```bash
+git clone https://github.com/leo-younger/multi-agent-kb.git
+cd multi-agent-kb
+```
+
+### 第二步：启动 Neo4j 数据库
 
 ```bash
 docker-compose up -d
 ```
 
+检查是否启动成功：
+
+```bash
+docker ps | grep neo4j-kb
+```
+
+看到 `neo4j-kb` 容器状态为 `Up` 即成功。
+
 Neo4j 管理界面：http://localhost:7474
 - 用户名：`neo4j`
 - 密码：`password123`
 
-等待约 30 秒启动完成。
+> 首次启动需拉取镜像，等待约 1 分钟。如已启动过，约 10 秒即可。
 
-### 2. 启动后端
+### 第三步：启动后端
 
 ```bash
 cd backend
 
-# 创建虚拟环境（推荐）
+# 创建虚拟环境
 python -m venv venv
-venv\Scripts\activate       # Windows
-# source venv/bin/activate  # macOS/Linux
 
-# 安装依赖
+# 激活虚拟环境
+# Windows:
+venv\Scripts\activate
+# macOS/Linux:
+source venv/bin/activate
+
+# 安装依赖（首次约 2-3 分钟，sentence-transformers 模型约 80MB）
 pip install -r requirements.txt
 
-# 启动服务
+# 启动后端服务
 python main.py
 ```
 
-后端运行在 http://localhost:8000
-API 文档：http://localhost:8000/docs
+看到以下输出即成功：
 
-### 3. 启动前端
+```
+==================================================
+多智能体协同知识库系统 启动中...
+API 文档: http://localhost:8000/docs
+==================================================
+INFO:     Uvicorn running on http://0.0.0.0:8000
+```
+
+> Embedding 模型首次加载需下载约 80MB，如果网络慢会自动降级为 mock 模式（不影响使用，只是向量精度稍低）。
+
+### 第四步：启动前端
+
+新开一个终端窗口：
 
 ```bash
 cd frontend
+
+# 安装依赖
 npm install
+
+# 启动开发服务器
 npm run dev
 ```
 
-前端运行在 http://localhost:5173
+看到以下输出即成功：
 
-### 4. 使用流程
+```
+  VITE v5.x.x  ready in xxx ms
 
-1. 打开 http://localhost:5173
-2. **文档管理**：上传 `test-data/` 目录下的测试文件 → 点击「开始抽取」→ 点击「开始入库」
-3. **智能问答**：输入问题（如"张三负责什么模块？"），查看 Agent 协同过程
-4. **知识图谱**：查看实体关系的可视化图谱，支持拖拽和缩放
+  ➜  Local:   http://localhost:5173/
+```
+
+### 第五步：使用系统
+
+1. 浏览器打开 http://localhost:5173
+2. **文档管理**：点击左侧「文档管理」→ 上传 `test-data/` 目录下的测试文件 → 点击「开始抽取」→ 点击「开始入库」
+3. **智能问答**：点击左侧「智能问答」→ 输入问题（如"张三负责什么模块？"）→ 查看右侧 Agent 协同过程
+4. **知识图谱**：点击左侧「知识图谱」→ 查看实体关系可视化，支持拖拽、缩放、点击查看节点详情
+
+## 常见问题
+
+### Neo4j 连接失败
+
+```
+[GraphStore] Neo4j 连接失败: ...
+```
+
+**解决**：确认 Docker 容器已启动且等待了 30 秒以上。
+
+```bash
+docker ps | grep neo4j
+# 如果没看到 neo4j-kb，重新启动：
+docker-compose up -d
+# 等待 30 秒后再试
+```
+
+### Embedding 模型下载慢
+
+```
+[Embedding] 模型加载失败，使用 mock 模式: ...
+```
+
+**解决**：这是正常的降级行为。mock 模式下向量精度稍低，但功能完全正常。如果想用真实模型，可以手动下载：
+
+```bash
+# 设置国内镜像
+set HF_ENDPOINT=https://hf-mirror.com
+
+# 手动下载模型
+python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+```
+
+### 端口被占用
+
+```
+Error: [Errno 10048] ...
+```
+
+**解决**：后端默认用 8000 端口，前端默认用 5173 端口。如果被占用：
+
+```bash
+# 查看占用端口的进程
+netstat -ano | findstr :8000
+
+# 杀掉进程（替换 PID）
+taskkill /PID <进程ID> /F
+```
+
+### pip install 报错
+
+**解决**：确保在虚拟环境中安装：
+
+```bash
+# 确认虚拟环境已激活（命令行前面有 (venv) 标识）
+venv\Scripts\activate      # Windows
+source venv/bin/activate   # macOS/Linux
+
+# 升级 pip 后重试
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### npm install 报错
+
+**解决**：
+
+```bash
+# 清除缓存重试
+npm cache clean --force
+rm -rf node_modules package-lock.json
+npm install
+```
 
 ## API 接口
 

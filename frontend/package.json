@@ -1,0 +1,19 @@
+{
+  "name": "multi-agent-kb-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "vue": "^3.3.8",
+    "element-plus": "^2.4.3",
+    "echarts": "^5.4.3"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^4.5.2",
+    "vite": "^5.0.4"
+  }
+}

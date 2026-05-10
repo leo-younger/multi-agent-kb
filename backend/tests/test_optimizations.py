@@ -128,3 +128,38 @@ def test_search_related_entities_calls_unwind(mock_get_driver):
     # 验证 Cypher 包含 UNWIND
     cypher = call_args[0][0]
     assert "UNWIND" in cypher
+
+
+import asyncio
+from services.agents import run_agent_pipeline, _analyze_question, _extract_keywords
+
+
+def test_analyze_question():
+    """问题类型识别正确"""
+    assert _analyze_question("张三负责什么模块？") == "职责查询"
+    assert _analyze_question("订单系统依赖哪些服务？") == "依赖关系查询"
+    assert _analyze_question("解析服务属于哪个部门？") == "归属查询"
+    assert _analyze_question("随便问一个问题") == "通用查询"
+
+
+def test_extract_keywords():
+    """关键词提取应匹配已知实体"""
+    kw = _extract_keywords("张三负责知识库模块")
+    assert "张三" in kw
+    assert "知识库模块" in kw
+
+
+def test_extract_keywords_fallback():
+    """无已知实体时应提取有意义的词"""
+    kw = _extract_keywords("系统如何优化性能？")
+    assert len(kw) > 0
+
+
+def test_agent_pipeline_async():
+    """run_agent_pipeline 应为 async 函数且可执行"""
+    result = asyncio.get_event_loop().run_until_complete(
+        run_agent_pipeline("张三负责什么？")
+    )
+    assert "answer" in result
+    assert "agent_steps" in result
+    assert len(result["agent_steps"]) == 4  # 总控 + 检索 + 拓扑 + 总结
